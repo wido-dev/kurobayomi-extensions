@@ -1,0 +1,7 @@
+id = "jkanime"
+name = "JKAnime"
+lang = "es"
+kind = "anime"
+version = 1
+# The only host the plug-in may reach through the `http` import. The video files and their host load in the app.
+hosts = ["jkanime.net"]
