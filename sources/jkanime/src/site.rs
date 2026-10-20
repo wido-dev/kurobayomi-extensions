@@ -245,14 +245,21 @@ pub fn episodes(anime_url: &str, count: u32) -> Vec<Episode> {
 
 /// The players of an episode page that the plug-in reads (see `PLAYERS`), in the page's order.
 pub fn parse_hosters(html: &str) -> Vec<Hoster> {
-    Html::parse_document(html)
-        .select(&sel("iframe[src*='/jkplayer/']"))
-        .filter_map(|frame| {
-            let src = absolute(frame.value().attr("src")?);
-            let name = Url::parse(&src).ok()?.path().rsplit('/').next()?.to_owned();
-            PLAYERS.contains(&name.as_str()).then(|| Hoster { hoster_url: src, hoster_name: format!("JKAnime {name}") })
-        })
-        .collect()
+    // The players sit in places the HTML parser reads as plain text (inside `<noscript>`, for one), so the `src` values
+    // are read from the markup itself, in the page's order.
+    let mut hosters: Vec<Hoster> = Vec::new();
+    for part in html.split("src=\"").skip(1) {
+        let Some(src) = part.split('"').next().map(|s| s.replace("&amp;", "&")) else { continue };
+        if !src.contains("/jkplayer/") {
+            continue;
+        }
+        let src = absolute(&src);
+        let Some(name) = Url::parse(&src).ok().and_then(|u| u.path().rsplit('/').next().map(str::to_owned)) else { continue };
+        if PLAYERS.contains(&name.as_str()) && !hosters.iter().any(|h| h.hoster_url == src) {
+            hosters.push(Hoster { hoster_url: src, hoster_name: format!("JKAnime {name}") });
+        }
+    }
+    hosters
 }
 
 /// The first HLS playlist address on a player page. The player holds it as a plain string, sometimes with `\/` escapes.
@@ -345,6 +352,14 @@ mod tests {
         let names: Vec<&str> = hosters.iter().map(|h| h.hoster_name.as_str()).collect();
         assert_eq!(names, vec!["JKAnime um", "JKAnime umv"]);
         assert!(hosters[0].hoster_url.starts_with("https://jkanime.net/jkplayer/um?e="));
+    }
+
+    #[test]
+    fn players_inside_noscript_are_still_found() {
+        let page = r#"<noscript><iframe class="player_conte" src="https://jkanime.net/jkplayer/umv?e=ZZ&amp;x=1"></iframe></noscript>"#;
+        let hosters = parse_hosters(page);
+        assert_eq!(hosters.len(), 1);
+        assert_eq!((hosters[0].hoster_name.as_str(), hosters[0].hoster_url.as_str()), ("JKAnime umv", "https://jkanime.net/jkplayer/umv?e=ZZ&x=1"));
     }
 
     #[test]
