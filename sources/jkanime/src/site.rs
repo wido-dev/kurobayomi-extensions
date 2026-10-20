@@ -148,7 +148,10 @@ pub fn parse_search(html: &str) -> AnimesPage {
 
 /// The featured titles of the home page: each hero slide links to its title and has its picture in `data-setbg`.
 /// The first segments of the site's own pages that are not titles: `/usuario/$me` is the user menu, `/genero/accion/` a genre.
-const NOT_TITLES: [&str; 9] = ["usuario", "genero", "idioma", "buscar", "dash", "ajax", "jkplayer", "notificaciones", "historial"];
+const NOT_TITLES: [&str; 17] = [
+    "usuario", "genero", "idioma", "buscar", "dash", "ajax", "jkplayer", "notificaciones", "historial", "guardado", "salir",
+    "listas", "contacto", "blog", "top", "directorio", "recientes",
+];
 
 /// A title is one path segment, `/one-piece/`, and not one of the site's other pages.
 fn is_title_path(path: &str) -> bool {
@@ -174,7 +177,11 @@ pub fn parse_popular(html: &str) -> AnimesPage {
         let picture = link.select(&sel("[data-setbg]")).next().and_then(|i| i.value().attr("data-setbg")).map(absolute);
         match found.iter_mut().find(|(url, _, _)| *url == path) {
             Some(entry) => {
-                entry.1 = entry.1.take().or(name);
+                // the shortest name wins: a slide can link to its title with a long caption around it
+                entry.1 = match (entry.1.take(), name) {
+                    (Some(known), Some(other)) => Some(if other.len() < known.len() { other } else { known }),
+                    (known, other) => known.or(other),
+                };
                 entry.2 = entry.2.take().or(picture);
             }
             None => found.push((path, name, picture)),
@@ -310,6 +317,7 @@ mod tests {
         assert_eq!(page.animes[0].thumbnail_url.as_deref(), Some("https://cdn.example.test/hero-1.jpg"));
         assert!(page.animes.iter().all(|a| a.title != "Ver ahora" && a.title != "Detalles"));
         assert!(page.animes.iter().all(|a| a.title != "Mi perfil" && a.title != "Accion"));
+        assert!(page.animes.iter().all(|a| a.title != "Guardado" && a.title != "Salir"));
     }
 
     #[test]
