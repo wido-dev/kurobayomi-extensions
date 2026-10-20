@@ -147,6 +147,15 @@ pub fn parse_search(html: &str) -> AnimesPage {
 }
 
 /// The featured titles of the home page: each hero slide links to its title and has its picture in `data-setbg`.
+/// The first segments of the site's own pages that are not titles: `/usuario/$me` is the user menu, `/genero/accion/` a genre.
+const NOT_TITLES: [&str; 9] = ["usuario", "genero", "idioma", "buscar", "dash", "ajax", "jkplayer", "notificaciones", "historial"];
+
+/// A title is one path segment, `/one-piece/`, and not one of the site's other pages.
+fn is_title_path(path: &str) -> bool {
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    segments.len() == 1 && !NOT_TITLES.contains(&segments[0])
+}
+
 pub fn parse_popular(html: &str) -> AnimesPage {
     let doc = Html::parse_document(html);
     // one entry per title: its name from the first link that is not a button, and its picture from any link to it
@@ -155,7 +164,7 @@ pub fn parse_popular(html: &str) -> AnimesPage {
         let Some(href) = link.value().attr("href") else { continue };
         let path = path_of(href);
         // a title is one path segment: `/one-piece/`; the site's other pages have more of them
-        if path.matches('/').count() != 2 || path.starts_with("/dash") {
+        if !is_title_path(&path) {
             continue;
         }
         let text = text_of(link);
@@ -300,6 +309,7 @@ mod tests {
         assert_eq!(page.animes[1].title, "Otro titulo");
         assert_eq!(page.animes[0].thumbnail_url.as_deref(), Some("https://cdn.example.test/hero-1.jpg"));
         assert!(page.animes.iter().all(|a| a.title != "Ver ahora" && a.title != "Detalles"));
+        assert!(page.animes.iter().all(|a| a.title != "Mi perfil" && a.title != "Accion"));
     }
 
     #[test]
