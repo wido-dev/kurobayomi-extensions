@@ -14,6 +14,9 @@ const HOST: &str = "jkanime.net";
 /// The site's own players: `um` and `umv` answer with an HLS playlist; the others are not read.
 const PLAYERS: [&str; 2] = ["um", "umv"];
 
+/// The button captions of the home page cards: they link to a title but are not its name.
+const BUTTON_LABELS: [&str; 3] = ["Ver ahora", "Detalles", "Mi perfil"];
+
 // ============================ Output (wire) ============================
 
 #[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
@@ -146,27 +149,34 @@ pub fn parse_search(html: &str) -> AnimesPage {
 /// The featured titles of the home page: each hero slide links to its title and has its picture in `data-setbg`.
 pub fn parse_popular(html: &str) -> AnimesPage {
     let doc = Html::parse_document(html);
-    let mut animes: Vec<Anime> = Vec::new();
+    // one entry per title: its name from the first link that is not a button, and its picture from any link to it
+    let mut found: Vec<(String, Option<String>, Option<String>)> = Vec::new();
     for link in doc.select(&sel("a[href]")) {
         let Some(href) = link.value().attr("href") else { continue };
         let path = path_of(href);
         // a title is one path segment: `/one-piece/`; the site's other pages have more of them
-        if path.matches('/').count() != 2 || path.starts_with("/dash") || animes.iter().any(|a| a.url == path) {
+        if path.matches('/').count() != 2 || path.starts_with("/dash") {
             continue;
         }
-        let title = text_of(link);
-        if title.is_empty() {
-            continue;
-        }
-        animes.push(Anime {
-            url: path,
-            title,
-            description: None,
-            thumbnail_url: link.select(&sel("[data-setbg]")).next().and_then(|i| i.value().attr("data-setbg")).map(absolute),
-            genre: None,
-            status: 0,
+        let text = text_of(link);
+        let name = (!text.is_empty() && !BUTTON_LABELS.contains(&text.as_str())).then_some(text).or_else(|| {
+            link.value().attr("title").or_else(|| link.select(&sel("img")).next().and_then(|i| i.value().attr("alt"))).map(|t| t.trim().to_owned()).filter(|t| !t.is_empty())
         });
+        let picture = link.select(&sel("[data-setbg]")).next().and_then(|i| i.value().attr("data-setbg")).map(absolute);
+        match found.iter_mut().find(|(url, _, _)| *url == path) {
+            Some(entry) => {
+                entry.1 = entry.1.take().or(name);
+                entry.2 = entry.2.take().or(picture);
+            }
+            None => found.push((path, name, picture)),
+        }
     }
+    let animes = found
+        .into_iter()
+        .filter_map(|(url, title, picture)| {
+            Some(Anime { url, title: title?, description: None, thumbnail_url: picture, genre: None, status: 0 })
+        })
+        .collect();
     AnimesPage { animes, has_next_page: false }
 }
 
@@ -288,6 +298,8 @@ mod tests {
         let page = parse_popular(HOME);
         assert_eq!(page.animes.len(), 2);
         assert_eq!(page.animes[1].title, "Otro titulo");
+        assert_eq!(page.animes[0].thumbnail_url.as_deref(), Some("https://cdn.example.test/hero-1.jpg"));
+        assert!(page.animes.iter().all(|a| a.title != "Ver ahora" && a.title != "Detalles"));
     }
 
     #[test]
